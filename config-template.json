@@ -1,0 +1,18 @@
+{
+    "servers": [
+        {
+            "name": "server1",
+            "host": "localhost",
+            "port": 3000,
+            "username": "admin",
+            "password": "admin"
+        },
+        {
+            "name": "server2",
+            "host": "localhost",
+            "port": 3001,
+            "username": "admin1",
+            "password": "admin1"
+        }
+    ]
+}
