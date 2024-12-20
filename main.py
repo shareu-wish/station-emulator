@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QComboBox, QLabel, QVBoxLayout, 
     QWidget, QPushButton, QTextEdit, QHBoxLayout, QLineEdit, QFormLayout
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 import json
 import mqtt_interaction
 
@@ -17,19 +17,13 @@ current_server_id = 0
 class StationInterface(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.stations_data = None
+
         self.setWindowTitle("Управление станциями")
         cp = self.screen().availableGeometry().center()
         WINDOW_WIDTH = 600
         WINDOW_HEIGHT = 400
         self.setGeometry(cp.x() - WINDOW_WIDTH // 2, cp.y() - WINDOW_HEIGHT // 2, WINDOW_WIDTH, WINDOW_HEIGHT)
-
-        # Состояние ячеек (пример данных)
-        self.slots = [
-            {"id": 1, "state": "открыта"},
-            {"id": 2, "state": "закрыта"},
-            {"id": 3, "state": "открыта"},
-            {"id": 4, "state": "закрыта"}
-        ]
         
         # Основной виджет
         main_widget = QWidget()
@@ -89,24 +83,52 @@ class StationInterface(QMainWindow):
         layout.addLayout(slot_input_layout)
         layout.addLayout(button_layout)
 
+        # Вызывать функцию self.update_slots_display() каждую секунду
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_slots_display)
+        self.timer.start(500)
+
     def connect_to_server(self, server_id):
         """Подключение к серверу по его ID."""
         server = config["servers"][server_id]
-        mqtt_interaction.connect(server["host"], server["port"], server["username"], server["password"], self.update_slots_display)
+        mqtt_interaction.connect(server["host"], server["port"], server["username"], server["password"], self.update_stations_data)
 
     def change_server(self, server):
         """Обновляет режим работы и выводит в консоль."""
         global current_server_id
         current_server_id = config["servers"].index(next(filter(lambda el: el["name"] == server, config["servers"])))
         print(f"Выбран сервер: {server} - {current_server_id}")
-    
-    def update_slots_display(self, data=None):
+
+
+    def update_slots_display(self):
         """Обновляет текстовое поле с состоянием ячеек."""
-        # display_text = ""
-        # for slot in self.slots:
-        #     display_text += f"Ячейка {slot['id']}: {slot['state']}\n"
-        # self.slots_display.setText(display_text)
-        print(data)
+        
+        if self.stations_data is None or self.station_input.text() == "":
+            self.slots_display.setText("")
+            return
+        if not self.station_input.text().isdigit():
+            self.slots_display.setText("Некорректный номер станции")
+            return
+        display_text = ""
+        station_id = int(self.station_input.text())
+        if station_id not in self.stations_data:
+            self.slots_display.setText("Данные об этой станции отсутствуют")
+            return
+        for slot_id in self.stations_data[station_id]:
+            slot = self.stations_data[station_id][slot_id]
+            lock = ""
+            if slot["lock"] == "closed":
+                lock = "закрыта"
+            elif slot["lock"] == "opened":
+                lock = "открыта"
+            elif slot["lock"] == "close":
+                lock = "закрывается"
+            elif slot["lock"] == "open":
+                lock = "открывается"
+            
+            display_text += f"Ячейка {slot_id}: {lock}, {'есть зонт' if slot['has_umbrella'] == 'y' else 'нет зонта'}\n"
+        self.slots_display.setText(display_text)
+
 
     def validate_inputs(self):
         """Проверяет корректность ввода и включает/отключает кнопки."""
@@ -134,6 +156,11 @@ class StationInterface(QMainWindow):
         slot = self.slot_input.text()
         print(f"Попытка положить зонт: Станция {station}, Ячейка {slot}")
         # Логика обновления состояния может быть добавлена здесь
+    
+    def update_stations_data(self, data):
+        """Обновляет данные о состоянии станций."""
+        self.stations_data = data
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
