@@ -1,9 +1,11 @@
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QComboBox, QLabel, QVBoxLayout, 
-    QWidget, QPushButton, QTextEdit, QHBoxLayout, QLineEdit, QFormLayout
+    QWidget, QPushButton, QTextEdit, QHBoxLayout, QLineEdit, QFormLayout,
+    QCheckBox
 )
 from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont
 import json
 import mqtt_interaction
 
@@ -19,10 +21,10 @@ class StationInterface(QMainWindow):
         super().__init__()
         self.stations_data = None
 
-        self.setWindowTitle("Управление станциями")
+        self.setWindowTitle("Управление станциями — WISH")
         cp = self.screen().availableGeometry().center()
-        WINDOW_WIDTH = 600
-        WINDOW_HEIGHT = 400
+        WINDOW_WIDTH = 400
+        WINDOW_HEIGHT = 500
         self.setGeometry(cp.x() - WINDOW_WIDTH // 2, cp.y() - WINDOW_HEIGHT // 2, WINDOW_WIDTH, WINDOW_HEIGHT)
         
         # Основной виджет
@@ -50,6 +52,8 @@ class StationInterface(QMainWindow):
         slots_label = QLabel("Состояние ячеек:")
         self.slots_display = QTextEdit()
         self.slots_display.setReadOnly(True)
+        font = QFont("Courier New", 10)
+        self.slots_display.setFont(font)
         self.update_slots_display()
 
         # Поле ввода для ячейки
@@ -58,6 +62,12 @@ class StationInterface(QMainWindow):
         self.slot_input.setPlaceholderText("Введите номер ячейки")
         self.slot_input.textChanged.connect(self.validate_inputs)  # Сигнал для проверки ввода
         slot_input_layout.addRow("Номер ячейки:", self.slot_input)
+
+        # Чекбокс для Pro режима
+        self.pro_mode_checkbox = QCheckBox("Pro-режим", self)
+        self.pro_mode_checkbox.toggled.connect(self.validate_inputs)
+        self.pro_mode_checkbox.setChecked(False)
+
 
         # Раздел кнопок
         button_layout = QHBoxLayout()
@@ -81,6 +91,7 @@ class StationInterface(QMainWindow):
         layout.addWidget(self.slots_display)
         layout.addSpacing(10)
         layout.addLayout(slot_input_layout)
+        layout.addWidget(self.pro_mode_checkbox)
         layout.addLayout(button_layout)
 
         # Вызывать функцию self.update_slots_display() каждую секунду
@@ -88,16 +99,19 @@ class StationInterface(QMainWindow):
         self.timer.timeout.connect(self.update_slots_display)
         self.timer.start(500)
 
+
     def connect_to_server(self, server_id):
         """Подключение к серверу по его ID."""
         server = config["servers"][server_id]
         mqtt_interaction.connect(server["host"], server["port"], server["username"], server["password"], self.update_stations_data)
+
 
     def change_server(self, server):
         """Обновляет режим работы и выводит в консоль."""
         global current_server_id
         current_server_id = config["servers"].index(next(filter(lambda el: el["name"] == server, config["servers"])))
         print(f"Выбран сервер: {server} - {current_server_id}")
+        self.connect_to_server(current_server_id)
 
 
     def update_slots_display(self):
@@ -109,24 +123,29 @@ class StationInterface(QMainWindow):
         if not self.station_input.text().isdigit():
             self.slots_display.setText("Некорректный номер станции")
             return
+        
         display_text = ""
         station_id = int(self.station_input.text())
         if station_id not in self.stations_data:
             self.slots_display.setText("Данные об этой станции отсутствуют")
             return
         for slot_id in self.stations_data[station_id]:
-            slot = self.stations_data[station_id][slot_id]
-            lock = ""
-            if slot["lock"] == "closed":
-                lock = "закрыта"
-            elif slot["lock"] == "opened":
-                lock = "открыта"
-            elif slot["lock"] == "close":
-                lock = "закрывается"
-            elif slot["lock"] == "open":
-                lock = "открывается"
-            
-            display_text += f"Ячейка {slot_id}: {lock}, {'есть зонт' if slot['has_umbrella'] == 'y' else 'нет зонта'}\n"
+            try:
+                slot = self.stations_data[station_id][slot_id]
+                lock = ""
+                if slot["lock"] == "closed":
+                    lock = "⭕закрыта"
+                elif slot["lock"] == "opened":
+                    lock = "🟢открыта"
+                elif slot["lock"] == "close":
+                    lock = "⌛закрывается"
+                elif slot["lock"] == "open":
+                    lock = "⌛открывается"
+                
+                display_text += f"Ячейка {slot_id : >2}: {lock}, {'☂️есть зонт' if slot['has_umbrella'] == 'y' else '❌нет зонта'}\n"
+            except KeyError:
+                display_text += f"Ячейка {slot_id : >2}: 📂Данные отсутствуют\n"
+        
         self.slots_display.setText(display_text)
 
 
@@ -135,31 +154,56 @@ class StationInterface(QMainWindow):
         station = self.station_input.text()
         slot = self.slot_input.text()
         
-        # Проверка: оба поля должны содержать только цифры
-        if station.isdigit() and slot.isdigit():
+        if self.pro_mode_checkbox.isChecked():
             self.take_umbrella_button.setEnabled(True)
             self.put_umbrella_button.setEnabled(True)
+            return
+        
+        # Проверка: оба поля должны содержать только цифры
+        if not (station.isdigit() and slot.isdigit()):
+            self.take_umbrella_button.setEnabled(False)
+            self.put_umbrella_button.setEnabled(False)
+            return
+        
+        station = int(station)
+        slot = int(slot)
+
+        if not (station in self.stations_data and slot in self.stations_data[station]):
+            self.take_umbrella_button.setEnabled(False)
+            self.put_umbrella_button.setEnabled(False)
+            return
+        
+        if self.stations_data[station][slot]["lock"] == "opened":
+            if self.stations_data[station][slot]["has_umbrella"] == "y":
+                self.take_umbrella_button.setEnabled(True)
+                self.put_umbrella_button.setEnabled(False)
+            else:
+                self.take_umbrella_button.setEnabled(False)
+                self.put_umbrella_button.setEnabled(True)
         else:
             self.take_umbrella_button.setEnabled(False)
             self.put_umbrella_button.setEnabled(False)
+
 
     def take_umbrella(self):
         """Обработчик кнопки 'Взять зонт'."""
         station = self.station_input.text()
         slot = self.slot_input.text()
-        print(f"Попытка взять зонт: Станция {station}, Ячейка {slot}")
-        # Логика обновления состояния может быть добавлена здесь
+        print(f"Берем зонт: Станция {station}, Ячейка {slot}")
+        mqtt_interaction.take_umbrella(int(station), int(slot))
     
     def put_umbrella(self):
         """Обработчик кнопки 'Положить зонт'."""
         station = self.station_input.text()
         slot = self.slot_input.text()
-        print(f"Попытка положить зонт: Станция {station}, Ячейка {slot}")
-        # Логика обновления состояния может быть добавлена здесь
+        print(f"Возвращаем зонт: Станция {station}, Ячейка {slot}")
+        mqtt_interaction.put_umbrella(int(station), int(slot))
     
+
     def update_stations_data(self, data):
         """Обновляет данные о состоянии станций."""
         self.stations_data = data
+        self.validate_inputs()
 
 
 if __name__ == "__main__":

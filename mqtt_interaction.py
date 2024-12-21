@@ -57,6 +57,12 @@ def connect(host, port, username, password, callback):
     mqttc.loop_start()
 
 
+def put_umbrella(station_id, slot_id):
+    mqttc.publish(f"wish/station{station_id}/slot{slot_id}/has_umbrella", "y", retain=True)
+
+def take_umbrella(station_id, slot_id):
+    mqttc.publish(f"wish/station{station_id}/slot{slot_id}/has_umbrella", "n", retain=True)
+
 # if __name__ == "__main__":
 #     connect()
 
