@@ -20,6 +20,7 @@ class StationInterface(QMainWindow):
     def __init__(self):
         super().__init__()
         self.stations_data = None
+        self.is_auto_lock = False
 
         self.setWindowTitle("Управление станциями — WISH")
         cp = self.screen().availableGeometry().center()
@@ -56,6 +57,12 @@ class StationInterface(QMainWindow):
         self.slots_display.setFont(font)
         self.update_slots_display()
 
+        # Чекбокс для автоиматического замка
+        self.auto_lock_checkbox = QCheckBox("Авто открытие/закрытие", self)
+        self.auto_lock_checkbox.toggled.connect(self.validate_inputs)
+        self.auto_lock_checkbox.setChecked(False)
+
+
         # Поле ввода для ячейки
         slot_input_layout = QFormLayout()
         self.slot_input = QLineEdit()
@@ -89,6 +96,7 @@ class StationInterface(QMainWindow):
         layout.addLayout(station_input_layout)
         layout.addWidget(slots_label)
         layout.addWidget(self.slots_display)
+        layout.addWidget(self.auto_lock_checkbox)
         layout.addSpacing(10)
         layout.addLayout(slot_input_layout)
         layout.addWidget(self.pro_mode_checkbox)
@@ -203,6 +211,14 @@ class StationInterface(QMainWindow):
     def update_stations_data(self, data):
         """Обновляет данные о состоянии станций."""
         self.stations_data = data
+        if self.auto_lock_checkbox.isChecked():
+            station_id = int(self.station_input.text())
+            if station_id in self.stations_data:
+                for slot_id in self.stations_data[station_id]:
+                    if self.stations_data[station_id][slot_id]["lock"] == "open":
+                        mqtt_interaction.set_lock(int(station_id), int(slot_id), "opened")
+                    elif self.stations_data[station_id][slot_id]["lock"] == "close":
+                        mqtt_interaction.set_lock(int(station_id), int(slot_id), "closed")
         self.validate_inputs()
 
 

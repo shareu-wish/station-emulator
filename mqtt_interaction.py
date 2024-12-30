@@ -63,6 +63,9 @@ def put_umbrella(station_id, slot_id):
 def take_umbrella(station_id, slot_id):
     mqttc.publish(f"wish/station{station_id}/slot{slot_id}/has_umbrella", "n", retain=True)
 
+def set_lock(station_id, slot_id, lock):
+    mqttc.publish(f"wish/station{station_id}/slot{slot_id}/lock", lock, retain=True)
+
 # if __name__ == "__main__":
 #     connect()
 
